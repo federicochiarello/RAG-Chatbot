@@ -1,0 +1,11 @@
+chromadb
+langchain
+pandas
+pypdf
+python-dotenv
+streamlit
+
+langchain_chroma
+langchain_community
+langchain_ollama
+langchain_text_splitters
