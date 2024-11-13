@@ -12,16 +12,18 @@ class ChromaDBManager(VectorDatabaseManager):
         self.collection_name = collection_name
         self.embedding_function = embedding_function
         self.persist_directory = str(persist_directory)
+        self.collection_metadata = {"hnsw:space": "cosine"}
 
     def connect(self) -> None:
         """Establish a connection to ChromaDB."""
         self.db = Chroma(
             collection_name = self.collection_name,
             embedding_function = self.embedding_function,
-            persist_directory = self.persist_directory, 
+            persist_directory = self.persist_directory,
+            collection_metadata = self.collection_metadata,
         )
         print(f"\n----- ChromaDB CONNECTION -----\n\n - Persist Directory:\t{self.persist_directory}")
-        print(f" - Collection Name:\t{self.collection_name}\n - Embedding Function:\t{self.embedding_function.__class__}\n")
+        print(f" - Collection Name:\t{self.collection_name}\n - Embedding Function:\t{self.embedding_function.__class__}\n - Collection Metadata:\t{self.collection_metadata}\n")
 
     def disconnect(self) -> None:
         pass
