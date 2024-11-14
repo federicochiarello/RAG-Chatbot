@@ -23,12 +23,22 @@ Save the csv files under 'data/csv/'.
 
 ## Commands
 
+```
+# move to src directory
+cd src
+```
+
 ### Create (or update) the database:
 ```
 python populate_database.py
 ```
 
-### Ask question:
+### Ask question through terminal:
 ```
 python query_data.py "your question"
+```
+
+### Interact with a Chatbot UI:
+```
+stremlit run chatbot_ui.py
 ```
