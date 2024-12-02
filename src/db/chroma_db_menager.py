@@ -28,6 +28,9 @@ class ChromaDBManager(VectorDatabaseManager):
     def disconnect(self) -> None:
         pass
 
+    def get_db(self):
+        return self.db
+
     def upload_data(self, chunks: list[Document]) -> None:
         """Upload a list of documents to ChromaDB."""
 

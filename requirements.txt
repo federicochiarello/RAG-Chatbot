@@ -1,9 +1,11 @@
 chromadb
 langchain
+streamlit
+
+cryptography
 pandas
 pypdf
 python-dotenv
-streamlit
 
 langchain_chroma
 langchain_community
