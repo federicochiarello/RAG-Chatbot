@@ -1,54 +1,20 @@
 from langchain_core.messages import HumanMessage, SystemMessage, RemoveMessage
-from langchain_ollama import ChatOllama
-import json
-
 from langgraph.graph import StateGraph, START, END
+from langchain_ollama import ChatOllama
 
+from .state import GraphState
 
-
-
-
-
-
-
-"""
-You a question re-writer that converts an input question to a better version that is optimized \n 
-for vectorstore retrieval. Look at the initial and formulate an improved question. \n
-Here is the initial question: \n\n {question}. Improved question with no preamble: \n 
-
-
-Your task is to generate five 
-different versions of the given user question to retrieve relevant documents from a vector 
-database. By generating multiple perspectives on the user question, your goal is to help
-the user overcome some of the limitations of the distance-based similarity search. 
-Provide these alternative questions separated by newlines. Original question: {question}
-
-
-
-
-Your goal is to re-write the user question , without the context provided by previous messages.
-If the user question is already clear on its own, than do not modify it.
-Do not change the meaning of the original user question or add unnecessary informations.
-"""
-
-
-
-
-
-
+import os
+import sys
+import json
+from pathlib import Path
+from dotenv import load_dotenv
 
 
 # https://langchain-ai.github.io/langgraph/tutorials/rag/langgraph_adaptive_rag_local/#local-models
 
 
-
-import sys
 sys.path.append('../')
-
-
-import os
-from pathlib import Path
-from dotenv import load_dotenv
 load_dotenv()
 CHROMA_PATH = Path(os.getenv("CHROMA_PATH"))
 COLLECTION_NAME = os.getenv("COLLECTION_NAME")
@@ -156,12 +122,17 @@ def contextualize(state):
     messages = format_messages(langchain_messages)
     summary = state.get("summary", "")
     question = langchain_messages[-1].content
+
+    # if it is the first message, skip contextualization
+    # set both questions to original value
+    if len(langchain_messages) == 1:
+        return {"user_question": question, "contextualized_question": question}
     
     contextualize_prompt_formatted = contextualize_prompt.format(summary=summary, messages=messages, question=question)
     print(contextualize_prompt_formatted)
     contextualized_question = llm.invoke([HumanMessage(content=contextualize_prompt_formatted)])
 
-    return {"question": contextualized_question.content}
+    return {"user_question": question, "contextualized_question": contextualized_question.content}
 
 
 
@@ -184,7 +155,7 @@ def retrieve(state):
         state (dict): New key added to state, documents, that contains retrieved documents
     """
     print("\n---RETRIEVE---\n")
-    question = state["question"]
+    question = state["contextualized_question"]
     print("Question used for retrieval: ", question)
     documents = retriever.invoke(question)
 
@@ -249,11 +220,12 @@ def generate_with_resources(state):
     Returns:
         state (dict): New key added to state, generation, that contains LLM generation
     """
-    print("\n---GENERATE---\n")
+    print("\n---GENERATE WITH RESOURCES---\n")
 
-    question = state["question"]
+    # Using the contextualized (reformulated) question
+    question = state["contextualized_question"]
     documents = state["documents"]
-    #loop_step = state.get("loop_step", 0)
+    loop_step = state.get("loop_step", 0)
 
     # RAG generation
     docs_txt = format_docs(documents)
@@ -262,7 +234,7 @@ def generate_with_resources(state):
 
     response = llm.invoke([HumanMessage(content=rag_prompt_formatted)])
 
-    return {"messages": response}#, "loop_step": loop_step + 1}
+    return {"messages": response, "loop_step": loop_step + 1}
 
 
 
@@ -274,8 +246,96 @@ def generate_with_resources(state):
 #####################################################################################################################
 
 
-def generate_without_resources(state):
-    pass
+direct_prompt = """You are a helpful and informative assistent for question-answering tasks.
+You have been designed to support transformative climate adaptation by managing knowledge from different European projects, supporting decision-making and planning, 
+bridging accessibility gaps between regional and local actors, operationalizing nature-based solutions (nbs), enabling quick information access, and guiding adaptation strategies.
+
+Do not answer to question not related to your domain.
+"""
+
+
+def generate_without_resources(state: GraphState):
+
+    print("\n---GENERATE WITHOUT RESOURCES---\n")
+
+    # question = state["user_question"]
+    # print("Question: ", question)
+   
+    # Get summary if it exists
+    summary = state.get("summary", "")
+
+    # If there is summary, add it
+    if summary:
+        summary_message = f"Summary of conversation earlier: {summary}"
+        messages = [SystemMessage(content=direct_prompt)] + [SystemMessage(content=summary_message)] + state["messages"]
+    else:
+        messages = [SystemMessage(content=direct_prompt)] + state["messages"]
+    
+    # print(messages)
+
+    response = llm.invoke(messages)
+    return {"messages": response}
+
+
+
+
+#####################################################################################################################
+#
+#   SUMMARIZE
+#
+#####################################################################################################################
+
+
+def summarize_conversation(state: GraphState):
+
+    print("\n---SUMMARIZING CONVERSATION---\n")
+    
+    # First, we get any existing summary
+    summary = state.get("summary", "")
+
+    # Create our summarization prompt 
+    if summary:
+        
+        # A summary already exists
+        summary_message = (
+            f"This is summary of the conversation to date: {summary}\n\n"
+            "Extend the summary by taking into account the new messages above. Do not use any preamble."
+        )
+        
+    else:
+        summary_message = "Create a summary of the conversation above. Do not use any preamble."
+
+    # Add prompt to our history
+    messages = state["messages"] + [HumanMessage(content=summary_message)]
+    response = llm.invoke(messages)
+    
+    # Delete all but the 2 most recent messages
+    delete_messages = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]
+    return {"summary": response.content, "messages": delete_messages}
+
+
+
+
+#####################################################################################################################
+#
+#   SUMMARIZE OR END
+#
+#####################################################################################################################
+
+
+# Determine whether to end or summarize the conversation
+def summarize_or_end(state: GraphState):
+    
+    """Return the next node to execute."""
+    
+    messages = state["messages"]
+    
+    # If there are more than four messages, then we summarize the conversation
+    if len(messages) > 4:
+        return "summarize_conversation"
+    
+    # Otherwise we can just end
+    return END
 
 
 
@@ -287,6 +347,26 @@ def generate_without_resources(state):
 #####################################################################################################################
 
 
+"""
+You a question re-writer that converts an input question to a better version that is optimized \n 
+for vectorstore retrieval. Look at the initial and formulate an improved question. \n
+Here is the initial question: \n\n {question}. Improved question with no preamble: \n 
+
+
+Your task is to generate five 
+different versions of the given user question to retrieve relevant documents from a vector 
+database. By generating multiple perspectives on the user question, your goal is to help
+the user overcome some of the limitations of the distance-based similarity search. 
+Provide these alternative questions separated by newlines. Original question: {question}
+
+
+
+
+Your goal is to re-write the user question , without the context provided by previous messages.
+If the user question is already clear on its own, than do not modify it.
+Do not change the meaning of the original user question or add unnecessary informations.
+"""
+
 def rewrite_query(state):
     pass
 
@@ -295,52 +375,41 @@ def rewrite_query(state):
 
 #####################################################################################################################
 #
-#   NEED SUMMARY
+#   GRADE DOCUMENTS
 #
 #####################################################################################################################
-
-
-def need_summary(state):
-    pass
-
-
-
-#####################################################################################################################
-
-
-
 
 
 # Doc grader instructions
 doc_grader_instructions = """You are a grader assessing relevance of a retrieved document to a user question.
 If the document contains keyword(s) or semantic meaning related to the question, grade it as relevant."""
 
+
 # Grader prompt
 doc_grader_prompt = """Here is the retrieved document: \n\n {document} \n\n Here is the user question: \n\n {question}. 
-This carefully and objectively assess whether the document contains at least some information that is relevant to the question.
+Assess whether the document contains at least some information that is relevant to the question.
 Return JSON with single key, binary_score, that is 'yes' or 'no' score to indicate whether the document contains at least some information that is relevant to the question."""
-
 
 
 def grade_documents(state):
     """
     Determines whether the retrieved documents are relevant to the question
-    If any document is not relevant, we will set a flag to run web search
+    Remove documents that are not relevant
 
     Args:
         state (dict): The current graph state
 
     Returns:
-        state (dict): Filtered out irrelevant documents and updated web_search state
+        state (dict): Filtered out irrelevant documents
     """
 
-    print("---CHECK DOCUMENT RELEVANCE TO QUESTION---")
-    question = state["question"]
+    print("\n---CHECK DOCUMENT RELEVANCE TO QUESTION---\n")
+    question = state["contextualized_question"]
     documents = state["documents"]
 
     # Score each doc
     filtered_docs = []
-    web_search = "No"
+
     for d in documents:
         doc_grader_prompt_formatted = doc_grader_prompt.format(
             document=d.page_content, question=question
@@ -350,48 +419,42 @@ def grade_documents(state):
             + [HumanMessage(content=doc_grader_prompt_formatted)]
         )
         grade = json.loads(result.content)["binary_score"]
-        # Document relevant
+
         if grade.lower() == "yes":
-            print("---GRADE: DOCUMENT RELEVANT---")
+            print("\n---GRADE: DOCUMENT RELEVANT---\n")
             filtered_docs.append(d)
-        # Document not relevant
         else:
-            print("---GRADE: DOCUMENT NOT RELEVANT---")
+            print("\n---GRADE: DOCUMENT NOT RELEVANT---\n")
             # We do not include the document in filtered_docs
-            # We set a flag to indicate that we want to run web search
-            web_search = "Yes"
-            continue
-    return {"documents": filtered_docs, "web_search": web_search}
+            
+    return {"documents": filtered_docs}
+
 
 
 
 #####################################################################################################################
+#
+#   ROUTE QUESTION
+#
+#####################################################################################################################
 
 
+router_instructions = """You are an expert at routing a user question to the right source:
+- 'vectorstore': source that retrieve documents from a vectorstore.
+- 'direct': source that generate a direct answer.
 
-### Edges
+Use the vectorstore for questions on those topics:
+- climate change, climate risk, climate hazards
+- transformative climate adaptation, Adaptation Pathways
+- nature-based solutions (nbs)
+- European projects, decision-making, stakeholders and regional-to-local actors
 
-
-
-router_instructions = """You are an expert at routing user questions to the right source.
-
-Those are the available sources:
- - 'vectorstore': source that retrieve documents from a vectorstore. The vectorstore contains documents related to climate change adaptation strategies and nature-based solutions.
- - 'unrelated': source that answer directly without retrieving documents (the question is unrelated to the documents).
-
-Route the user to the right source:
- - Route to 'vectorstore': if the question is on topics related to climate change and nature-based solutions.
- - Route to 'unrelated': if the question can be answered directly without retrieving documents.
-
-Route to 'unrelated' only if you are sure that the question does not need documents to be answered, otherwise if you are not sure, than route it to 'vectorstore'.
-
-Return JSON with single key, datasource, that is 'vectorstore' or 'unrelated' depending on the question."""
-
+Return JSON with single key, datasource, that is 'vectorstore' or 'direct' depending on the question."""
 
 
 def route_question(state):
     """
-    Route question to web search or RAG
+    Route question to vectorstore (RAG system) or direct answer
 
     Args:
         state (dict): The current graph state
@@ -399,24 +462,26 @@ def route_question(state):
     Returns:
         str: Next node to call
     """
+    question = state["contextualized_question"]
 
-    print("---ROUTE QUESTION---")
-    route_question = llm_json_mode.invoke(
-        [SystemMessage(content=router_instructions)]
-        + [HumanMessage(content=state["question"])]
-    )
+    print("\n---ROUTE QUESTION---\n")
+    route_question = llm_json_mode.invoke([SystemMessage(content=router_instructions)] + [HumanMessage(content=question)])
     source = json.loads(route_question.content)["datasource"]
-    if source == "websearch":
-        print("---ROUTE QUESTION TO WEB SEARCH---")
-        return "websearch"
+
+    if source == "direct":
+        print("\n---ROUTE QUESTION TO DIRECT ANSWER---\n")
+        return "direct"
     elif source == "vectorstore":
-        print("---ROUTE QUESTION TO RAG---")
+        print("\n---ROUTE QUESTION TO VECTORSTORE (RAG)---\n")
         return "vectorstore"
 
 
 
 #####################################################################################################################
-
+#
+#   GRADE DOCUMENTS
+#
+#####################################################################################################################
 
 
 def decide_to_generate(state):
@@ -450,8 +515,10 @@ def decide_to_generate(state):
 
 
 #####################################################################################################################
-
-
+#
+#   FFF
+#
+#####################################################################################################################
 
 # Hallucination grader instructions
 hallucination_grader_instructions = """
@@ -557,8 +624,8 @@ def grade_generation_v_documents_and_question(state):
 
 
 #####################################################################################################################
-
-
-
-
+#
+#   FFF
+#
+#####################################################################################################################
 

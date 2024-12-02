@@ -4,35 +4,20 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from utils.state import GraphState
 from utils.nodes import (
-    retrieve,
-    generate_from_resources,
-    generate_without_resources,
     contextualize,
+    retrieve,
+    generate_with_resources,
+    generate_without_resources,
+    summarize_conversation,
+    summarize_or_end,
 
     grade_documents,
     rewrite_query,
 
-
-
-    need_summary,
     route_question,
     decide_to_generate,
     grade_generation_v_documents_and_question,
 )
-
-
-from utils.summarization_nodes import (
-    call_model,
-    summarize_conversation,
-    should_continue,
-)
-
-
-
-
-
-
-
 
 
 
@@ -84,24 +69,35 @@ workflow.add_conditional_edges(
 workflow = StateGraph(GraphState)
 
 workflow.add_node("contextualize", contextualize)
-
 workflow.add_node("retrieve", retrieve)
-
-workflow.add_node("generate_from_resources", generate_from_resources)
-
-#workflow.add_node("conversation", call_model)
+workflow.add_node("generate_with_resources", generate_with_resources)
+workflow.add_node("generate_without_resources", generate_without_resources)
 workflow.add_node("summarize_conversation", summarize_conversation)
 
 
 
-# Set the entrypoint as conversation
+# Set the entrypoint
 workflow.add_edge(START, "contextualize")
-workflow.add_edge("contextualize", "retrieve")
-workflow.add_edge("retrieve", "generate_from_resources")
-#workflow.add_edge("conversation", END)
 workflow.add_conditional_edges(
-    "generate_from_resources", 
-    should_continue,
+    "contextualize",
+    route_question,
+    {
+        "direct": "generate_without_resources",
+        "vectorstore": "retrieve",
+    },
+)
+workflow.add_edge("retrieve", "generate_with_resources")
+workflow.add_conditional_edges(
+    "generate_with_resources", 
+    summarize_or_end,
+    {
+        "summarize_conversation": "summarize_conversation",
+        END: END,
+    }
+)
+workflow.add_conditional_edges(
+    "generate_without_resources", 
+    summarize_or_end,
     {
         "summarize_conversation": "summarize_conversation",
         END: END,
@@ -154,6 +150,12 @@ def main():
     config = {"configurable": {"thread_id": "1"}}
 
 
+    input_message = HumanMessage(content="Hi my name is Federico. Who are you?")
+    output = graph.invoke({"messages": [input_message]}, config) 
+    for m in output['messages'][-2:]:
+        m.pretty_print()
+
+
     input_message = HumanMessage(content="I live in Venice. Can you tell me what nbs stands for in climate change domain?")
     output = graph.invoke({"messages": [input_message]}, config) 
     for m in output['messages'][-2:]:
@@ -178,7 +180,12 @@ def main():
         m.pretty_print()
 
 
-    print("\n\n\nTRIGGER SUMMARIZATION\n\n\n")
+    input_message = HumanMessage(content="Tell me the rules of tennis")
+    output = graph.invoke({"messages": [input_message]}, config) 
+    for m in output['messages'][-2:]:
+        m.pretty_print()
+
+
 
 
     
