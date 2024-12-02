@@ -82,7 +82,6 @@ llm_json_mode = ChatOllama(model=local_llm, temperature=0, format="json")
 #####################################################################################################################
 
 
-
 contextualize_prompt = """You are an AI language model assistant. Your task is to re-write the user question into a better version 
 that is clear and can be understood on its own without the context provided by previous messages.
 You have access previous messages and a summary of the chat history.
@@ -102,7 +101,6 @@ Contextualize the question using messages and summary.
 - Return only the final re-written question. 
 - Do not include any preamble.
 """
-
 
 
 # Pre-processing
@@ -140,7 +138,6 @@ def format_messages(messages):
         formatted_messages = formatted_messages + f"{role} {index}: {message.content}\n\n"
 
     return formatted_messages
-
 
 
 def contextualize(state):
@@ -188,33 +185,42 @@ def retrieve(state):
     """
     print("\n---RETRIEVE---\n")
     question = state["question"]
-
-    print(question)
-
-    # Write retrieved documents to documents key in state
+    print("Question used for retrieval: ", question)
     documents = retriever.invoke(question)
 
     print("\nRetrieved documents:")
-    for doc in documents:
-        print("\n", doc, "\n")
+    for index, document in enumerate(documents):
+        print(f"\nDocument {index+1}:\n\n", document, "\n")
 
     return {"documents": documents}
 
 
 
+
+#####################################################################################################################
+#
+#   GENERATE WITH RESOURCES
+#
 #####################################################################################################################
 
 
-
-# Post-processing
+# Pre-processing
 def format_docs(docs):
+    # return "\n\n".join(f"Document {index+1}:\n\n" + doc.page_content for index, doc in enumerate(docs))
     return "\n\n".join(doc.page_content for doc in docs)
 
 
-rag_prompt = """You are an assistant for question-answering tasks. 
+rag_prompt = """You are a helpful and informative assistent for question-answering tasks.
+You have been designed to support transformative climate adaptation by managing knowledge from different European projects, supporting decision-making and planning, 
+bridging accessibility gaps between regional and local actors, operationalizing nature-based solutions (nbs), enabling quick information access, and guiding adaptation strategies.
+
 Here is the context to use to answer the question:
 
-{context} 
+[
+
+{context}
+
+]
 
 Think carefully about the above context. 
 Now, review the user question:
@@ -222,12 +228,18 @@ Now, review the user question:
 {question}
 
 Provide an answer to this questions using only the above context. 
-Use three sentences maximum and keep the answer concise.
+
+- You may be talking to a non-technical audience. Break down complicated concepts and strike a friendly and converstional tone.
+- Be sure to respond in a complete sentence, being comprehensive, including all relevant background information. 
+- Keep the answer concise. Do not include any preamble.
+- If a document form the context is irrelevant to the answer, you may ignore it.
+- If you don't know the answer, just say it, don't try to make up an answer.
+- If the question is not clear or meaningful or unrelated to the context, then ask the user to rephrase the question.
 
 Answer:"""
 
 
-def generate_from_resources(state):
+def generate_with_resources(state):
     """
     Generate answer using RAG on retrieved documents
 
@@ -246,14 +258,20 @@ def generate_from_resources(state):
     # RAG generation
     docs_txt = format_docs(documents)
     rag_prompt_formatted = rag_prompt.format(context=docs_txt, question=question)
+    print(rag_prompt_formatted)
+
     response = llm.invoke([HumanMessage(content=rag_prompt_formatted)])
 
     return {"messages": response}#, "loop_step": loop_step + 1}
 
 
 
-#####################################################################################################################
 
+#####################################################################################################################
+#
+#   GENERATE WITHOUT RESOURCES
+#
+#####################################################################################################################
 
 
 def generate_without_resources(state):
@@ -261,8 +279,12 @@ def generate_without_resources(state):
 
 
 
-#####################################################################################################################
 
+#####################################################################################################################
+#
+#   REWRITE QUERY
+#
+#####################################################################################################################
 
 
 def rewrite_query(state):
@@ -272,7 +294,10 @@ def rewrite_query(state):
 
 
 #####################################################################################################################
-
+#
+#   NEED SUMMARY
+#
+#####################################################################################################################
 
 
 def need_summary(state):
