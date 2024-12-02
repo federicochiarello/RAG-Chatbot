@@ -7,6 +7,37 @@ from langgraph.graph import StateGraph, START, END
 
 
 
+
+
+
+
+"""
+You a question re-writer that converts an input question to a better version that is optimized \n 
+for vectorstore retrieval. Look at the initial and formulate an improved question. \n
+Here is the initial question: \n\n {question}. Improved question with no preamble: \n 
+
+
+Your task is to generate five 
+different versions of the given user question to retrieve relevant documents from a vector 
+database. By generating multiple perspectives on the user question, your goal is to help
+the user overcome some of the limitations of the distance-based similarity search. 
+Provide these alternative questions separated by newlines. Original question: {question}
+
+
+
+
+Your goal is to re-write the user question , without the context provided by previous messages.
+If the user question is already clear on its own, than do not modify it.
+Do not change the meaning of the original user question or add unnecessary informations.
+"""
+
+
+
+
+
+
+
+
 # https://langchain-ai.github.io/langgraph/tutorials/rag/langgraph_adaptive_rag_local/#local-models
 
 
@@ -43,94 +74,106 @@ llm_json_mode = ChatOllama(model=local_llm, temperature=0, format="json")
 
 
 
+
+#####################################################################################################################
+#
+#   CONTEXTUALIZE
+#
 #####################################################################################################################
 
-"""
 
 
-
-
-You a question re-writer that converts an input question to a better version that is optimized \n 
-for vectorstore retrieval. Look at the initial and formulate an improved question. \n
-Here is the initial question: \n\n {question}. Improved question with no preamble: \n 
-
-
-Your task is to generate five 
-different versions of the given user question to retrieve relevant documents from a vector 
-database. By generating multiple perspectives on the user question, your goal is to help
-the user overcome some of the limitations of the distance-based similarity search. 
-Provide these alternative questions separated by newlines. Original question: {question}
-
-
-
-
-Your goal is to re-write the user question , without the context provided by previous messages.
-If the user question is already clear on its own, than do not modify it.
-Do not change the meaning of the original user question or add unnecessary informations.
-"""
-
-
-
-contextualize_prompt = """You are an AI language model assistant.
-Your task is to re-write the user question into a better version that is clear and can be understood on its own 
-without the context provided by previous messages.
-You have access to the context provided by previous messages and a summary of the chat history.
-
-If the user question is already clear on its own, than do not modify it.
-Do not change the meaning of the original user question or add unnecessary informations.
+contextualize_prompt = """You are an AI language model assistant. Your task is to re-write the user question into a better version 
+that is clear and can be understood on its own without the context provided by previous messages.
+You have access previous messages and a summary of the chat history.
 
 summary: {summary}
 
 messages: [
 
-{messages}
-
-]
+{messages}]
 
 question: {question}
 
-Contextualize the question using messages and summary. Return only the final re-written question. Do not include any preamble.
+Contextualize the question using messages and summary. 
+
+- Do not change the meaning of the original user question or add unnecessary informations.
+- Give higher priority to the information arriving from recent messages.
+- Return only the final re-written question. 
+- Do not include any preamble.
 """
+
 
 
 # Pre-processing
 def format_messages(messages):
-    return "\n\n".join(msg.content for msg in messages)
+    """
+    Convert a list of LangChain Messages into a formatted string.
+    
+    Example:
+
+    messages = [
+    HumanMessage(content='Hi', additional_kwargs={}, response_metadata={}, id='123'), 
+    AIMessage(content='Hola', additional_kwargs={}, response_metadata={...}, id='456')
+    ]
+
+    formatted_messages = "User message 1: Hi
+
+    Model Answer 1: Hola
+    
+    "
+
+    Args:
+        messages (list): list of LangChain Messages
+
+    Returns:
+        formatted_messages(str): String containing the formatted messages
+    """
+    formatted_messages = ""
+    for i, message in enumerate(messages):
+        if message.__class__.__name__ == "HumanMessage":
+            role = "User question"
+            index = i + 1
+        else:
+            role = "Model answer"
+            index = i
+        formatted_messages = formatted_messages + f"{role} {index}: {message.content}\n\n"
+
+    return formatted_messages
+
 
 
 def contextualize(state):
     """
-    Contextualize user query using previous messages as context.
+    Contextualize user query using previous messages and chat history as context.
 
     Args:
         state (dict): The current graph state
 
     Returns:
-        state (dict): Update the user query using previous messages and chat history as context
+        state (dict): Updated user query field
     """
     print("\n---CONTEXTUALIZE---\n")
 
-    #summary = state["summary"]
+    langchain_messages = state["messages"]      # list of Lanchain Messages with metadata           
+    messages = format_messages(langchain_messages)
     summary = state.get("summary", "")
-    raw_messages = state["messages"]
-    messages = format_messages(raw_messages)
-    question = raw_messages[-1].content
-    #question = state["question"]
-
+    question = langchain_messages[-1].content
+    
     contextualize_prompt_formatted = contextualize_prompt.format(summary=summary, messages=messages, question=question)
-
     print(contextualize_prompt_formatted)
-
     contextualized_question = llm.invoke([HumanMessage(content=contextualize_prompt_formatted)])
-
-    #print(contextualized_question)
 
     return {"question": contextualized_question.content}
 
 
 
-#####################################################################################################################
 
+#####################################################################################################################
+#
+#   RETRIEVE
+#
+#####################################################################################################################
 
 
 def retrieve(state):
