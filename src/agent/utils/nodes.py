@@ -11,6 +11,54 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
+
+
+#########################################################################################################
+
+import os
+import logging
+import time
+from datetime import datetime
+
+
+# Setup logging configuration
+log_dir = os.path.normpath('./logs')
+os.makedirs(log_dir, exist_ok=True)
+
+start_time = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+log_filename = f'execution_log_{start_time}.log'
+log_file_path = os.path.join(log_dir, log_filename)
+
+logging.basicConfig(
+    filename=log_file_path,             # Log file name
+    level=logging.INFO,                 # Log level
+    format='%(asctime)s - %(levelname)s - %(message)s', # Log format
+    datefmt='%Y-%m-%d %H:%M:%S'         # Date and time format
+)
+
+def log_execution_time(func):
+    def wrapper(*args, **kwargs):
+        start_time = time.time()  # Record the start time
+        result = func(*args, **kwargs)
+        end_time = time.time()    # Record the end time
+        elapsed_time = end_time - start_time  # Calculate the elapsed time
+        logging.info(f"Execution of {func.name} took {elapsed_time:.4f} seconds")
+        return result
+    return wrapper
+
+# @log_execution_time
+# def example_fun():
+#    pass
+
+# logging.info("info")
+
+line_separator = "\n--------------------------------------------------------------------------------------------------------\n"
+
+#########################################################################################################
+
+
+
+
 # https://langchain-ai.github.io/langgraph/tutorials/rag/langgraph_adaptive_rag_local/#local-models
 
 
@@ -36,11 +84,14 @@ db = chroma_db_manager.get_db()
 K = 6
 retriever = db.as_retriever(search_kwargs={"k": K})
 
+logging.info(f"Retriever\n\n - Retriever config:\t{retriever}\n")
+
 
 local_llm = "llama3.1"
 llm = ChatOllama(model=local_llm, temperature=0)
 llm_json_mode = ChatOllama(model=local_llm, temperature=0, format="json")
 
+logging.info(f"LLM Model\n\n - LLM name:\t\t{local_llm}\n - LLM config:\t\t{llm}\n - LLM JSON config:\t{llm_json_mode}\n")
 
 
 
@@ -68,8 +119,7 @@ Contextualize the question using messages and summary.
 - Do not change the meaning of the original user question or add unnecessary informations.
 - Give higher priority to the information arriving from recent messages.
 - Return only the final re-written question. 
-- Do not include any preamble.
-"""
+- Do not include any preamble."""
 
 
 # Pre-processing
@@ -129,11 +179,15 @@ def contextualize(state):
     # if it is the first message, skip contextualization
     # set both questions to original value
     if len(langchain_messages) == 1:
+        logging.info("CONTEXTUALIZE: skip for first message")
         return {"user_question": question, "contextualized_question": question}
     
     contextualize_prompt_formatted = contextualize_prompt.format(summary=summary, messages=messages, question=question)
     print(contextualize_prompt_formatted)
     contextualized_question = llm.invoke([HumanMessage(content=contextualize_prompt_formatted)])
+
+    logging.info(f"""CONTEXTUALIZE\n\nPROMPT:{line_separator}{contextualize_prompt_formatted}{line_separator}
+CONTEXTUALIZED QUESTION:{line_separator}{contextualized_question.content}{line_separator}""")
 
     return {"user_question": question, "contextualized_question": contextualized_question.content}
 
@@ -164,8 +218,13 @@ def retrieve(state):
     documents = retriever.invoke(question)
 
     print("\nRetrieved documents:")
+    docs_for_log = ""
     for index, document in enumerate(documents):
+        docs_for_log += f"\nDocument {index+1}:\n\n{document}\n"
         print(f"\nDocument {index+1}:\n\n", document, "\n")
+
+    logging.info(f"""RETRIEVE\n\nQUESTION USED FOR RETRIEVAL:{line_separator}{question}{line_separator}
+RETRIEVED DOCUMENTS:{line_separator}{docs_for_log}{line_separator}""")
 
     return {"documents": documents, "loop_step_retrieval": loop_step_retrieval + 1}
 
@@ -238,6 +297,8 @@ def generate_with_resources(state):
 
     response = llm.invoke([HumanMessage(content=rag_prompt_formatted)])
 
+    logging.info(f"GENERATE WITH RESOURCES\n\nPROMPT:{line_separator}{rag_prompt_formatted}{line_separator}\nANSWER:{line_separator}{response.content}{line_separator}")
+
     return {"messages": response, "loop_step_generate": loop_step_generate + 1}
 
 
@@ -254,8 +315,7 @@ direct_prompt = """You are a helpful and informative assistent for question-answ
 You have been designed to support transformative climate adaptation by managing knowledge from different European projects, supporting decision-making and planning, 
 bridging accessibility gaps between regional and local actors, operationalizing nature-based solutions (nbs), enabling quick information access, and guiding adaptation strategies.
 
-Do not answer to question not related to your domain.
-"""
+Do not answer to question not related to your domain."""
 
 
 def generate_without_resources(state: GraphState):
@@ -274,10 +334,11 @@ def generate_without_resources(state: GraphState):
         messages = [SystemMessage(content=direct_prompt)] + [SystemMessage(content=summary_message)] + state["messages"]
     else:
         messages = [SystemMessage(content=direct_prompt)] + state["messages"]
-    
-    # print(messages)
 
     response = llm.invoke(messages)
+
+    logging.info(f"GENERATE WITHOUT RESOURCES\n\nPROMPT:{line_separator}{direct_prompt}{line_separator}\nANSWER:{line_separator}{response.content}{line_separator}")
+
     return {"messages": response}
 
 
@@ -308,8 +369,7 @@ question: {question}
 answer: {answer}
 
 Write 3 questions. No preamble.
-Return JSON with keys 1, 2, 3, and as value the corresponding generated question.
-"""
+Return JSON with keys 1, 2, 3, and as value the corresponding generated question."""
 
 
 def generate_follow_up_questions(state):
@@ -338,11 +398,17 @@ def generate_follow_up_questions(state):
     try:
         follow_up_questions = [json.loads(raw_answer.content)["1"], json.loads(raw_answer.content)["2"], json.loads(raw_answer.content)["3"]]
     except (json.JSONDecodeError, KeyError, TypeError) as e:
+        logging.error(f"Error parsing LLM response: {e}")
         print(f"Error parsing LLM response: {e}")
         follow_up_questions = ["", "", ""]
 
+    questions_for_log = ""
     print("Follow-up questions:")
-    [print(i+1, ": ", q) for i, q in enumerate(follow_up_questions)]
+    for i, q in enumerate(follow_up_questions):
+        print(i+1, ": ", q)
+        questions_for_log += f" - {i+1}: {q}\n"
+
+    logging.info(f"GENERATE FOLLOW-UP QUESTIONS\n\nPROMPT:{line_separator}{follow_up_questions_prompt_formatted}{line_separator}\nFOLLOW-UP QUESTIONS:{line_separator}{questions_for_log}{line_separator}")
 
     return {"follow_up_questions": follow_up_questions}
 
@@ -360,27 +426,35 @@ def summarize_conversation(state: GraphState):
 
     print("\n---SUMMARIZING CONVERSATION---\n")
     
-    # First, we get any existing summary
     summary = state.get("summary", "")
 
-    # Create our summarization prompt 
     if summary:
-        
-        # A summary already exists
         summary_message = (
             f"This is summary of the conversation to date: {summary}\n\n"
-            "Extend the summary by taking into account the new messages above. Do not use any preamble."
+            "Extend the summary by taking into account the new messages above."
         )
-        
     else:
-        summary_message = "Create a summary of the conversation above. Do not use any preamble."
+        summary_message = "Create a summary of the conversation above."
+
+    system_message = """You are an AI language model assistant.
+    Your task is to generate or extend a summary of a conversation between a user and a chatbot.
+
+    The summary must contain the salient information derived from the conversation.
+    Prioritize information about the user.
+    Keep track of the topics covered.
+    Do not use any preamble.
+    """
 
     # Add prompt to our history
-    messages = state["messages"] + [HumanMessage(content=summary_message)]
+    messages = [SystemMessage(content=system_message)] + state["messages"] + [HumanMessage(content=summary_message)]
     response = llm.invoke(messages)
     
     # Delete all but the 2 most recent messages
     delete_messages = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]
+
+    logging.info(f"""SUMMARIZING CONVERSATION\n\nPROMPT:{line_separator}{system_message}\n{summary_message}{line_separator}
+SUMMARY: {line_separator}{response.content}{line_separator}\n""")
+
     return {"summary": response.content, "messages": delete_messages}
 
 
@@ -402,9 +476,11 @@ def summarize_or_end(state: GraphState):
     
     # If there are more than four messages, then we summarize the conversation
     if len(messages) > 4:
+        logging.info(f"DECIDE IF SUMMARIZE OR END:\tsummarize_conversation")
         return "summarize_conversation"
     
     # Otherwise we can just end
+    logging.info(f"DECIDE IF SUMMARIZE OR END:\tgenerate_follow_up_questions")
     return "generate_follow_up_questions"
 
 
@@ -449,6 +525,7 @@ def grade_documents(state):
 
     # Score each doc
     filtered_docs = []
+    docs_for_log = ""
 
     for d in documents:
         doc_grader_prompt_formatted = doc_grader_prompt.format(
@@ -458,13 +535,22 @@ def grade_documents(state):
             [SystemMessage(content=doc_grader_instructions)]
             + [HumanMessage(content=doc_grader_prompt_formatted)]
         )
-        grade = json.loads(result.content)["binary_score"]
+
+        try:
+            grade = json.loads(result.content)["binary_score"]
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logging.error(f"Error parsing LLM response: {e}")
+            print(f"Error parsing LLM response: {e}")
+            grade = "yes"
+        
 
         if grade.lower() == "yes":
+            docs_for_log += f"GRADE: DOCUMENT RELEVANT ({grade.lower()})\n\n{d}\n\n"
             print("\n---GRADE: DOCUMENT RELEVANT---\n")
             print("\n", d, "\n")
             filtered_docs.append(d)
         else:
+            docs_for_log += f"GRADE: DOCUMENT NOT RELEVANT ({grade.lower()})\n\n{d}\n\n"
             print("\n---GRADE: DOCUMENT NOT RELEVANT---\n")
             print("\n", d, "\n")
             # We do not include the document in filtered_docs
@@ -476,6 +562,8 @@ def grade_documents(state):
         print("\n---NOT ENOUGHT. RE-WRITE QUERY---\n")
     else:
         print("\n---ENOUGHT RELEVANT DOCUMENTS---\n")
+
+    logging.info(f"""GRADING DOCUMENTS\n\n{line_separator}{docs_for_log}{line_separator}\nRELEVANT DOCUMENTS: {len(filtered_docs)}\nMINIMUM: {MINIMUM_NUMEBER_OF_RELEVANT_DOCUMENTS}\n""")
 
     return {"documents": filtered_docs, "re_write_query": re_write_query}
 
@@ -508,12 +596,12 @@ def generate_or_rewrite_query(state):
     re_write_query = state["re_write_query"]
 
     if re_write_query & (loop_step_retrieve < max_retries_retrieval):
-        print(
-            "\n---DECISION: NOT ENOUGHT DOCUMENTS ARE RELEVANT TO QUESTION. RE-WRITE QUERY---\n"
-        )
+        print("\n---DECISION: NOT ENOUGHT DOCUMENTS ARE RELEVANT TO QUESTION. RE-WRITE QUERY---\n")
+        logging.info(f"DECIDE IF GENERATE OR RE-WRITE QUERY:\tre_write_query")
         return "re_write_query"
     else:
         print("\n---DECISION: GENERATE---\n")
+        logging.info(f"DECIDE IF GENERATE OR RE-WRITE QUERY:\tgenerate_with_resources")
         return "generate_with_resources"
 
 
@@ -554,6 +642,8 @@ def re_write_query(state):
     print(re_write_prompt_formatted)
     reformulated_question = llm.invoke([HumanMessage(content=re_write_prompt_formatted)])
     print("Re-written question: ", reformulated_question.content)
+
+    logging.info(f"RE-WRITE QUERY\n\nPROMPT:{line_separator}{re_write_prompt_formatted}{line_separator}\nREFORMULATED QUESTION:\t{line_separator}{reformulated_question.content}{line_separator}")
 
     # set re_write_query back to False
     return {"contextualized_question": reformulated_question.content, "re_write_query": False}
@@ -600,8 +690,11 @@ def route_question(state):
     try:
         source = json.loads(route_question.content)["datasource"]
     except (json.JSONDecodeError, KeyError, TypeError) as e:
+        logging.error(f"Error parsing LLM response: {e}")
         print(f"Error parsing LLM response: {e}")
         source = "direct"
+
+    logging.info(f"ROUTING QUESTION:\t{source}")
 
     if source == "direct":
         print("\n---ROUTE QUESTION TO DIRECT ANSWER---\n")

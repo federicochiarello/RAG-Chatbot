@@ -1,5 +1,7 @@
 from pathlib import Path
+import logging
 from langchain_chroma import Chroma
+from chromadb.config import Settings
 from langchain.schema.document import Document
 from typing import Callable
 from .vector_db_interface import VectorDatabaseManager
@@ -21,7 +23,11 @@ class ChromaDBManager(VectorDatabaseManager):
             embedding_function = self.embedding_function,
             persist_directory = self.persist_directory,
             collection_metadata = self.collection_metadata,
+            # client_settings=Settings(anonymized_telemetry=False),
         )
+        logging.info(f"""ChromaDB CONNECTION\n\n - Persist Directory:\t{self.persist_directory}\n - Collection Name:\t\t{self.collection_name}
+ - Embedding Function:\t{self.embedding_function.__class__}\n - Collection Metadata:\t{self.collection_metadata}\n""")
+
         print(f"\n----- ChromaDB CONNECTION -----\n\n - Persist Directory:\t{self.persist_directory}")
         print(f" - Collection Name:\t{self.collection_name}\n - Embedding Function:\t{self.embedding_function.__class__}\n - Collection Metadata:\t{self.collection_metadata}\n")
 
