@@ -16,8 +16,11 @@ COLLECTION_NAME = os.getenv("COLLECTION_NAME")
 def main():
 
     document_loader = DocumentLoader(pdf_dir = PDF_PATH, csv_dir = CSV_PATH)
-    pdf_chunks, csv_chunks = document_loader.load_documents()
-    chunks = pdf_chunks + csv_chunks
+    chunks = document_loader.load_pdfs(directory = PDF_PATH)
+
+    # Use those lines if you need to load and embed csv files
+    # pdf_chunks, csv_chunks = document_loader.load_documents()
+    # chunks = pdf_chunks + csv_chunks
 
     chroma_db_meneger = ChromaDBManager(
         persist_directory = CHROMA_PATH,
