@@ -22,8 +22,3 @@ class GraphState(MessagesState):
     max_retries_retrieval: int                          # Max number of retries for document retrieval
 
     re_write_query: bool            # If True trigger rewrite node, otherwise continue on the graph
-
-    '''
-    generation: str  # LLM generation
-    answers: int  # Number of answers generated
-    '''

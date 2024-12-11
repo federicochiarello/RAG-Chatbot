@@ -17,32 +17,52 @@ from utils.nodes import (
     re_write_query,
 
     route_question,
-    grade_generation_v_documents_and_question,
+    check_hallucinations,
+    check_relevance,
+    grade_generation_v_documents_and_question
 )
 
 
-def build_graph():
 
-    # Define nodes
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
+CHROMA_PATH = Path(os.getenv("CHROMA_PATH"))
+COLLECTION_NAME = os.getenv("COLLECTION_NAME")
+
+os.environ["LANGSMITH_API_KEY"] = os.getenv("LANGSMITH_API_KEY")
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_PROJECT"] = "local-llama-rag-test1"
+
+
+
+
+def build_graph_small():
+
 
     workflow = StateGraph(GraphState)
 
+
+    # Define nodes
     workflow.add_node("contextualize", contextualize)
     workflow.add_node("retrieve", retrieve)
-    workflow.add_node("grade_documents", grade_documents)
+    #workflow.add_node("grade_documents", grade_documents)
     workflow.add_node("generate_with_resources", generate_with_resources)
     workflow.add_node("generate_without_resources", generate_without_resources)
     workflow.add_node("summarize_conversation", summarize_conversation)
     workflow.add_node("generate_follow_up_questions", generate_follow_up_questions)
-    
-
     # forced to use re_write_q
     # ValueError: 're_write_query' is already being used as a state key
-    # workflow.add_node("re_write_q", re_write_query)
-
+    #workflow.add_node("re_write_q", re_write_query)
+    #workflow.add_node("check_hallucinations", check_hallucinations)
+    #workflow.add_node("check_relevance", check_relevance)
+    
 
     # Add egdes
-
     workflow.add_edge(START, "contextualize")
     workflow.add_conditional_edges(
         "contextualize",
@@ -52,46 +72,17 @@ def build_graph():
             "vectorstore": "retrieve",
         },
     )
-    workflow.add_edge("retrieve", "grade_documents")
-    workflow.add_edge("grade_documents", "generate_with_resources")
-
-    """
+    workflow.add_edge("retrieve", "generate_with_resources")
+    workflow.add_edge("generate_with_resources", "generate_follow_up_questions")
+    workflow.add_edge("generate_without_resources", "generate_follow_up_questions")
     workflow.add_conditional_edges(
-        "grade_documents", 
-        generate_or_rewrite_query,
-        {
-            "generate_with_resources": "generate_with_resources",
-            "re_write_query": "re_write_q",
-        }
-    )
-    workflow.add_edge("re_write_q", "retrieve")
-    workflow.add_conditional_edges(
-        "generate_with_resources", 
+        "generate_follow_up_questions", 
         summarize_or_end,
         {
             "summarize_conversation": "summarize_conversation",
             END: END,
         }
     )
-    """
-
-    workflow.add_conditional_edges(
-        "generate_with_resources", 
-        summarize_or_end,
-        {
-            "summarize_conversation": "summarize_conversation",
-            "generate_follow_up_questions": "generate_follow_up_questions",
-        }
-    )
-    workflow.add_conditional_edges(
-        "generate_without_resources", 
-        summarize_or_end,
-        {
-            "summarize_conversation": "summarize_conversation",
-            "generate_follow_up_questions": "generate_follow_up_questions",
-        }
-    )
-    workflow.add_edge("generate_follow_up_questions", END)
     workflow.add_edge("summarize_conversation", END)
 
 
@@ -103,10 +94,84 @@ def build_graph():
 
 
 
+
+
+def build_graph():
+
+
+    workflow = StateGraph(GraphState)
+
+
+    # Define nodes
+    workflow.add_node("contextualize", contextualize)
+    workflow.add_node("retrieve", retrieve)
+    workflow.add_node("grade_documents", grade_documents)
+    workflow.add_node("generate_with_resources", generate_with_resources)
+    workflow.add_node("generate_without_resources", generate_without_resources)
+    workflow.add_node("summarize_conversation", summarize_conversation)
+    workflow.add_node("generate_follow_up_questions", generate_follow_up_questions)
+    # forced to use re_write_q
+    # ValueError: 're_write_query' is already being used as a state key
+    workflow.add_node("re_write_q", re_write_query)
+    #workflow.add_node("check_hallucinations", check_hallucinations)
+    #workflow.add_node("check_relevance", check_relevance)
+    
+
+    # Add egdes
+    workflow.add_edge(START, "contextualize")
+    workflow.add_conditional_edges(
+        "contextualize",
+        route_question,
+        {
+            "direct": "generate_without_resources",
+            "vectorstore": "retrieve",
+        },
+    )
+    workflow.add_edge("retrieve", "grade_documents")
+    workflow.add_conditional_edges(
+        "grade_documents", 
+        generate_or_rewrite_query,
+        {
+            "generate_with_resources": "generate_with_resources",
+            "re_write_query": "re_write_q",
+        }
+    )
+    workflow.add_edge("re_write_q", "retrieve")
+    workflow.add_conditional_edges(
+        "generate_with_resources",
+        grade_generation_v_documents_and_question,
+        {
+            "not supported": "generate_with_resources",
+            "useful": "generate_follow_up_questions",
+            "not useful": "re_write_q",
+            "max retries": "generate_follow_up_questions", # to be implemented
+        },
+    )
+    workflow.add_edge("generate_without_resources", "generate_follow_up_questions")
+    workflow.add_conditional_edges(
+        "generate_follow_up_questions", 
+        summarize_or_end,
+        {
+            "summarize_conversation": "summarize_conversation",
+            END: END,
+        }
+    )
+    workflow.add_edge("summarize_conversation", END)
+
+
+    # Compile
+    memory = MemorySaver()
+    graph = workflow.compile(checkpointer=memory)
+
+    return graph
+
+
+
+
 def main():
 
     # Build Graph
-    graph = build_graph()
+    graph = build_graph_small()
 
 
     # Create a thread
@@ -157,7 +222,7 @@ def main():
     img = graph.get_graph().draw_mermaid_png(
         draw_method=MermaidDrawMethod.API,
     )
-    output_file = "graph.png"
+    output_file = "graph_small.png"
     with open(output_file, 'wb') as f:
         f.write(img)
     
