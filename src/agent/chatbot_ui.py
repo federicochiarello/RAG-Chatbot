@@ -10,11 +10,11 @@ st.title("💬 RAG-Agent Chatbot")
 
 
 if 'graph' not in st.session_state:
-    # st.session_state.graph = build_graph()
+    #st.session_state.graph = build_graph()
     st.session_state.graph = build_graph_small()
 
     # Create a thread
-    st.session_state.config = {"configurable": {"thread_id": "1"}}
+    st.session_state.config = {"configurable": {"thread_id": "42"}}
 
 if "messages" not in st.session_state:
     st.session_state["messages"] = [{"role": "assistant", "content": "How can I help you?"}]
@@ -75,6 +75,11 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
+
+#
+MAX_SUGGESTED_QUESTION_LENGTH = 5
+if len(st.session_state.suggested_questions) > MAX_SUGGESTED_QUESTION_LENGTH:
+    st.session_state.suggested_questions = st.session_state.suggested_questions[:MAX_SUGGESTED_QUESTION_LENGTH]
 
 # Display sidebar buttons with suggested questions
 for item in st.session_state.suggested_questions:
