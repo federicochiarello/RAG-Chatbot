@@ -5,7 +5,7 @@ from chromadb.config import Settings
 from langchain.schema.document import Document
 from typing import Callable
 from .vector_db_interface import VectorDatabaseManager
-
+from tqdm import tqdm
 
 
 class ChromaDBManager(VectorDatabaseManager):
@@ -23,7 +23,7 @@ class ChromaDBManager(VectorDatabaseManager):
             embedding_function = self.embedding_function,
             persist_directory = self.persist_directory,
             collection_metadata = self.collection_metadata,
-            # client_settings=Settings(anonymized_telemetry=False),
+            client_settings=Settings(anonymized_telemetry=False),
         )
         logging.info(f"""ChromaDB CONNECTION\n\n - Persist Directory:\t{self.persist_directory}\n - Collection Name:\t\t{self.collection_name}
  - Embedding Function:\t{self.embedding_function.__class__}\n - Collection Metadata:\t{self.collection_metadata}\n""")
@@ -52,13 +52,18 @@ class ChromaDBManager(VectorDatabaseManager):
         chunks_with_ids = calculate_chunk_ids(chunks)
 
         # Add documents that don't exist in the DB.
-        new_chunks = []
+        new_chunks: list[Document] = []
         for chunk in chunks_with_ids:
             if chunk.metadata["id"] not in existing_ids:
                 new_chunks.append(chunk)
 
         if len(new_chunks):
             print(f"Number of new documents added to the DB: {len(new_chunks)}")
+            #uncomment below to use the progress bar
+            # for i in tqdm(range(len(new_chunks))):
+            #    chunk = new_chunks[i]
+            #     self.db.add_documents([chunk], ids=[chunk.id])
+            #if using the above chunk of code, comment the two lines below
             new_chunk_ids = [chunk.metadata["id"] for chunk in new_chunks]
             self.db.add_documents(new_chunks, ids=new_chunk_ids)
             print("Upload completed.\n")
