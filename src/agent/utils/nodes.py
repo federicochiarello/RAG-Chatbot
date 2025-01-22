@@ -3,7 +3,7 @@ from langgraph.graph import END
 from langchain_ollama import ChatOllama
 
 from .state import GraphState
-from .db.chroma_db_menager import ChromaDBManager
+from .db.chroma_db_manager import ChromaDBManager
 from .get_embedding_function import get_embedding_function
 
 import os
