@@ -11,3 +11,4 @@ langchain_chroma
 langchain_community
 langchain_ollama
 langchain_text_splitters
+tqdm

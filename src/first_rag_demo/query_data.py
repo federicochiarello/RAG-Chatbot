@@ -4,13 +4,15 @@ from pathlib import Path
 from dotenv import load_dotenv
 from langchain.prompts import ChatPromptTemplate
 from langchain_ollama import OllamaLLM
-from db.chroma_db_menager import ChromaDBManager
+from db.chroma_db_manager import ChromaDBManager
 from get_embedding_function import get_embedding_function
 
 
 load_dotenv()
 CHROMA_PATH = Path(os.getenv("CHROMA_PATH"))
 COLLECTION_NAME = os.getenv("COLLECTION_NAME")
+LLAMA_MODEL = os.getenv("LLAMA_MODEL")
+assert (len(LLAMA_MODEL)>0)
 
 
 PROMPT_TEMPLATE = """You are a helpful and informative chatbot that answers questions using text from the reference material included below.
@@ -68,13 +70,16 @@ def query_rag(query_text: str):
     prompt = prompt_template.format(context=context_text, question=query_text)
     print(f"----- PROMPT -----\n\n{prompt}\n")
 
-    model = OllamaLLM(model="llama3.1", temperature=0.7)
+    model = OllamaLLM(model=LLAMA_MODEL, temperature=0.7)
+    #print("Calling Llama, waiting for response...")
     response_text = model.invoke(prompt)
 
     # sources = [doc.metadata.get("id", None) for doc, _score in results]
     
     print(f"----- RESOURCES -----\n")
-    for doc, score in results: print(f"ID: {doc.metadata.get("id", None)}\tScore: {score}")
+    for doc, score in results: 
+        id = doc.metadata.get("id", None)
+        print(f"ID: {id}\tScore: {score}")
 
     print(f"\n----- RESPONSE -----\n\n{response_text}\n")
 

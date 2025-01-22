@@ -40,5 +40,33 @@ python query_data.py "your question"
 
 ### Interact with a Chatbot UI:
 ```
-stremlit run chatbot_ui.py
+streamlit run chatbot_ui.py
+```
+
+Instructions:
+Install Ollama from the link above. Then install the embed model and the desired language model: 
+```sh
+ollama pull nomic-embed-text
+ollama pull [llama-model]
+```
+Tested language models are: `llama3.2:1b`, `llama3.1`. 
+
+```sh
+python -m venv .venv
+
+# Linux/Mac
+source .venv/scripts/activate
+# Windows
+.\.venv\Scripts\activate.bat
+
+pip install -r requirements.txt
+```
+Make sure there is a .env file in the root directory of the project.
+Sample `.env` file:
+```
+PDF_PATH="path/to/pdfs"
+CSV_PATH="path/to/csvs"
+CHROMA_PATH="path/to/chroma.sqlite3"
+COLLECTION_NAME="chatbot"
+LLAMA_MODEL="llama3.2:1b"
 ```
